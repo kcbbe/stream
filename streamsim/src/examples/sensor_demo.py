@@ -60,16 +60,21 @@ logger = logging.getLogger(__name__)
 
 import yaml
 # Data Source: Reads from a CSV file with 'timestamp', 'category', and 'value' columns
-from streamsim.src.sources.a_data_source import csv_to_arrays, create_uni_signal
+from streamsim.src.sources.a_data_source import csv_to_arrays, create_uni_signal, get_dataframe
 # deriver = SmoothedSignalDeriver (calculates moving average)
 from streamsim.src.features.simple import SmoothedSignalDeriver
-# renderer = ModelLineRenderer (plots raw signal + smoothed model)
 import matplotlib.pyplot as plt
+# renderer = ModelLineRenderer (plots raw signal + smoothed model)
 from streamsim.src.renderers.model_line import ModelLineRenderer
-# detector = ResidualThresholdDetector (simple residual-based change point detection)
-from streamsim.src.detectors.residual import ResidualThresholdDetector
+# detector = AbsoluteThresholdDetector (simple absolute threshold exceeder detection)
+    # OPTION 1: AbsoluteThresholdDetector
+from streamsim.src.detectors.absolute_threshold import AbsoluteThresholdDetector
+    # OPTION 2: PlateauDetector
+from streamsim.src.detectors.plateau import PlateauDetector
 # ty together in a simulator
 from streamsim.src.core.simulator import StreamingSimulator
+
+import numpy as np
 
 # Load configuration from YAML file
 with open("./config.yaml", "r", encoding="utf-8") as stream:
@@ -84,8 +89,38 @@ def sensor_demo():
         fig=fig, 
         ax=ax, 
         title="Model line", 
-        ylim=(0,15) #TODO: make this dynamic based on the data in window
+        ylim=(int(config["y_min"]), int(config["y_max"]))
     )
+
+    if config["y_dynamic"]:
+        def update_ylim(_event):
+            """Fit the y-axis to the values in the currently visible window. Written by Copilot, with minor adjustments by Jennefer Beenen."""
+            x_min, x_max = ax.get_xlim()
+            values = []
+            first_time = True
+            for line in ax.lines:
+                if str(line.get_label()).lower() != 'anomaly':
+                    x_data = np.asarray(line.get_xdata())
+                    y_data = np.asarray(line.get_ydata())
+
+                    if first_time:
+                        first_time = False
+
+                    if len(x_data) != len(y_data):
+                        continue
+                    visible = (x_data >= x_min) & (x_data <= x_max)
+                    values.extend(y_data[visible])
+
+            values = np.asarray(values, dtype=float)
+            values = values[np.isfinite(values)]
+            if values.size == 0:
+                return
+
+            lower, upper = values.min(), values.max()
+            padding = max((upper - lower) * 0.05, 1e-9)
+            ax.set_ylim(lower - padding, upper + padding)
+
+        fig.canvas.mpl_connect("draw_event", update_ylim)
 
     # 2. Initialize Data Source
     records, category_names = csv_to_arrays(
@@ -102,14 +137,28 @@ def sensor_demo():
 
     # 3. Configure Signal Smoother
     deriver = SmoothedSignalDeriver(window_size = 100)
-    # 4. Configure Anomaly Detector 
-    detector = ResidualThresholdDetector(threshold=1.5, min_samples=30)
+    
+    # 4. Configure Anomaly Detector (get threshold dataframe and filter on univariate selected_parameter)
+    all_thresholds = get_dataframe(config["threshold_file"])
+    parameter_thresholds = all_thresholds[all_thresholds[config["category_column"]] == config["selected_parameter"]]
+
+    # OPTION 1: AbsoluteThresholdDetector
+    # detector = AbsoluteThresholdDetector(
+    #     sorted((
+    #         parameter_thresholds["threshold_start"].values[0],
+    #         parameter_thresholds["threshold_stop"].values[0]
+    #     ))
+    # )
+
+    # OPTION 2: PlateauDetector
+    detector = PlateauDetector(history=25)
 
     # 5. Configure Renderer
     renderer = ModelLineRenderer(
         show_legend=True,
         signal_label='Raw Signal',
         model_label='Smoothed Model',
+        vline_color= 'red',
         title_template="Latest Value: {feature:.1f}"
     )   
 

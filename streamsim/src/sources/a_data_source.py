@@ -108,6 +108,9 @@ def create_uni_signal(selected_parameter: str, records: np.ndarray, category_nam
     signal = records[index]
     return SensorDataSource(signal, fs)
 
+def get_dataframe(file_path: str = None,) -> pd.DataFrame:
+    return pd.read_csv(file_path)
+
 
 def create_a_data_source(file_path: str = None, fs: float = 200.0) -> SensorDataSource:
     """
