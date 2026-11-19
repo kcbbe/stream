@@ -145,7 +145,8 @@ class StreamingRenderer(ABC):
     @abstractmethod
     def update(self, times: np.ndarray, samples: np.ndarray, 
                features: np.ndarray, change_points: np.ndarray,
-               window_duration_sec: float) -> List[Any]:
+               window_duration_sec: float, 
+               forecast: Optional[dict[str, np.ndarray]] = None) -> List[Any]:
         """
         Update plot elements with new data.
         
@@ -158,10 +159,20 @@ class StreamingRenderer(ABC):
             features (np.ndarray): Array of derived feature values (may contain None).
             change_points (np.ndarray): Array of timestamps where changes were detected.
             window_duration_sec (float): Duration of the visible time window in seconds.
+            ------ prediction part ------
+            forecast: (dict) a datamatrix with the predictions for instance
+            {
+            "time":   np.array([10.05, 10.06, 10.07, ..., 10.54]),  # future timestamps
+            "mean":   np.array([0.41,  0.43,  0.46,  ..., 0.85 ]),  # point forecast per step
+            "lower":  np.array([0.35,  0.36,  0.37,  ..., 0.52 ]),  # lower bound per step
+            "upper":  np.array([0.47,  0.50,  0.55,  ..., 1.18 ]),  # upper bound per step
+            "dt":     0.01,                                          # est. seconds per step
+            }
         
         Returns:
             List[Any]: Updated list of artist objects that have been modified.
                        Used by animation frameworks to determine what to redraw.
+
         """
         pass
     
@@ -175,3 +186,41 @@ class StreamingRenderer(ABC):
         applications.
         """
         pass
+
+
+# 16 november add streaming predictor
+class StreamingPredictor(ABC):
+    """
+    Abstract base class for forecasting future feature values from a stream.
+
+    Fed sequentially with derived features in the processing loop; produces a
+    multi-step forecast of where the feature is heading.
+
+    The models learns from recent history, 
+    so after a sudden change in your data it keeps predicting the old behavior 
+    until stale samples slowly age out — a window-stability-vs-adaptability 
+    trade-off formalized in the concept drift literature 
+    (Gama et al., ACM Computing Surveys 2014). 
+    Adaptive shrinking of the history window after a detected change is the core idea 
+    of ADWIN (Bifet & Gavaldà, 2007). Our on_change_point() is a pragmatic version 
+    of that: when the detector says "something changed," 
+    the predictor drops the older half of its history and refits, 
+    adapting in one step instead of over a whole window. 
+    Truncating rather than wiping everything keeps enough data to forecast immediately, 
+    avoiding a blind spot right when accuracy matters most.
+    """
+
+    @abstractmethod
+    def add_feature(self, feature_value: Optional[float],
+                    timestamp: Optional[float] = None) -> None:
+        """Feed the latest derived feature into the predictor."""
+
+    @abstractmethod
+    def get_forecast(self) -> Optional[dict[str, np.ndarray]]:
+        """Return the current forecast, or None during warm-up."""
+
+    def on_change_point(self) -> None:
+        """Hook: called when the change point detector fires. Default: no-op."""
+
+    def reset(self) -> None:
+        """Clear all internal state."""

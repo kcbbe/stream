@@ -32,11 +32,11 @@ Example:
     >>> fig, ax = plt.subplots()
     >>> artists = renderer.initialize(ax)
     >>> # In streaming loop:
-    >>> # updated_artists = renderer.update(times, samples, features, change_points, window_duration)
+    >>> # updated_artists = renderer.update(times, samples, features, change_points, window_duration, forecast)
 """
 
 
-from typing import List, Any
+from typing import List, Any, Optional
 import numpy as np
 from streamsim.src.core.interfaces import StreamingRenderer
 
@@ -135,7 +135,8 @@ class VerticalLineRenderer(StreamingRenderer):
         samples: np.ndarray,
         features: np.ndarray,
         change_points: np.ndarray,
-        window_duration_sec: float
+        window_duration_sec: float,
+        forecast: Optional[dict[str, np.ndarray]] = None
     ) -> List[Any]:
         """
         Update plot elements with new streaming data.

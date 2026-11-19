@@ -1,5 +1,5 @@
 from os import times
-from typing import List, Any
+from typing import List, Any, Optional
 import numpy as np
 from streamsim.src.core.interfaces import StreamingRenderer 
 
@@ -65,13 +65,19 @@ class ModelLineRenderer(StreamingRenderer):
 
         self.title_artist = ax.set_title("")
 
+        # added for prediction
+        self.forecast_line, = ax.plot([], [], lw=1.5, color='orange',
+                              linestyle='-.', alpha=0.9, label='Forecast')
+        self.band = ax.fill_between([], [], [],
+                            color='orange', alpha=0.15, label='_nolegend_')
+
         if self.show_legend:
             ax.legend()
 
-        self.artists = [self.line, self.model_line, self.vlines, self.title_artist]
+        self.artists = [self.line, self.model_line, self.vlines, self.forecast_line, self.band, self.title_artist]
         return self.artists
 
-    def update(self, times, samples, features, change_points, window_duration_sec):
+    def update(self, times, samples, features, change_points, window_duration_sec, forecast):
         if len(times) == 0:
             return self.artists
 
@@ -80,6 +86,7 @@ class ModelLineRenderer(StreamingRenderer):
         window_times = times[mask]
         window_samples = samples[mask]
         window_features = features[mask] if len(features) == len(samples) else np.array([])
+        
 
         # Update Raw Signal
         self.line.set_data(window_times, window_samples)
@@ -115,6 +122,16 @@ class ModelLineRenderer(StreamingRenderer):
             self.vlines.set_data([], [])
             self.vlines.set_visible(False)
 
+        # added for prediction
+        if forecast is not None and len(forecast.get("mean", [])) > 0:
+            self.forecast_line.set_data(forecast["time"], forecast["mean"])
+            self.band.remove()
+            self.band = self.ax.fill_between(
+                forecast["time"], forecast["lower"], forecast["upper"],
+                color='orange', alpha=0.15)
+            self.forecast_line.set_visible(True)
+        else:
+            self.forecast_line.set_visible(False)
 
         # Update Title
         if len(features) > 0 and self.title_artist is not None:

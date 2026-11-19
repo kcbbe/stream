@@ -52,6 +52,7 @@ from typing import Callable, Optional, Tuple, List
 from collections import deque
 from streamsim.src.core.interfaces import StreamingFeatureDeriver, StreamingChangePointDetector, StreamingRenderer
 from streamsim.src.core.config import PlottingSetup
+from streamsim.src.core.interfaces import StreamingPredictor
 
 import logging
 logger = logging.getLogger(__name__) 
@@ -74,6 +75,8 @@ class StreamingSimulator:
         window_duration_sec: float = 30.0,
         interval_ms: int = 50,
         max_history: int = 2000,
+        # added predictor
+        predictor: StreamingPredictor = None
     ):
         self.plotting_setup = plotting_setup
         self.feature_deriver = feature_deriver
@@ -82,6 +85,8 @@ class StreamingSimulator:
         self.window_duration_sec = window_duration_sec
         self.interval_ms = interval_ms
         self.max_history = max_history
+        # added predictor
+        self.predictor = predictor
         
         # Import here to avoid circular dependency
         from streamsim.src.renderers.matplotlib_line import MatplotlibLineRenderer
@@ -141,6 +146,13 @@ class StreamingSimulator:
 
             feature = self.feature_deriver.get_feature()
             
+            # added for streamingpredictor
+            forecast = None
+            if self.predictor is not None and feature is not None:
+                self.predictor.add_feature(feature, timestamp)
+                forecast = self.predictor.get_forecast()
+            ## end for streamingpredictor
+
             is_change = self.change_point_detector.update(feature_value=feature, raw_sample=sample)
             
             logger.debug(f"[Simulator] Feature={feature}, is_change={is_change}")
@@ -149,7 +161,10 @@ class StreamingSimulator:
                 if not hasattr(self, '_anomaly_line_added') or not self._anomaly_line_added:
                     self.change_timestamps.append(timestamp)
                     self._anomaly_line_added = True
+                    if self.predictor is not None:
+                        self.predictor.on_change_point() 
                     logger.debug(f"[Simulator] ADDED change point: t={timestamp:.2f}s")
+
             else:
                 self._anomaly_line_added = False
 
@@ -159,7 +174,9 @@ class StreamingSimulator:
                     "timestamp": timestamp,
                     "feature": feature,
                     "is_change": is_change,
-                    "change_points": np.array(self.change_timestamps)
+                    "change_points": np.array(self.change_timestamps),
+                    # added for predictor
+                    "forecast": forecast
                 })
 
             time.sleep(0.001)
@@ -208,6 +225,8 @@ class StreamingSimulator:
         
         # Track change points from queue
         change_points_list = []
+        # added for predictor
+        latest_forecast = None
         
         count = 0
         while count < 200:
@@ -220,6 +239,10 @@ class StreamingSimulator:
                 self.is_running = False
                 break
 
+            if msg.get("forecast") is not None:
+                latest_forecast = msg["forecast"]
+
+            # added for prediction
             self.sample_buffer.append(msg["sample"])
             self.time_buffer.append(msg["timestamp"])
             
@@ -241,13 +264,24 @@ class StreamingSimulator:
         features = np.array(self.feature_buffer, dtype=object) if self.feature_buffer else np.array([])
         cps = np.array(change_points_list) if change_points_list else np.array([])
 
-        artists = self.renderer.update(times, samples, features, cps, self.window_duration_sec)
-        
+        # added forecast
+        artists = self.renderer.update(times, samples, features, cps, self.window_duration_sec, latest_forecast)
+
         latest = times[-1]
+
+        right_edge = latest
+        if latest_forecast is not None and len(latest_forecast.get("time", [])) > 0:
+            right_edge = max(right_edge, float(latest_forecast["time"][-1]))
+
         if latest <= self.window_duration_sec:
             self.plotting_setup.ax.set_xlim(0, self.window_duration_sec)
         else:
-            self.plotting_setup.ax.set_xlim(latest - self.window_duration_sec, latest)
+            self.plotting_setup.ax.set_xlim(latest - self.window_duration_sec, right_edge)
+        #latest = times[-1]
+        #if latest <= self.window_duration_sec:
+        #    self.plotting_setup.ax.set_xlim(0, self.window_duration_sec)
+        #else:
+        #    self.plotting_setup.ax.set_xlim(latest - self.window_duration_sec, latest)
         
         return artists
 
