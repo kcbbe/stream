@@ -58,7 +58,7 @@ StreamSim provides a producer-consumer architecture for processing streaming dat
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/fenna/stream.git
+   git clone https://github.com/kcbbe/stream.git
    cd stream
    ```
 2. **Install dependencies:**
@@ -66,10 +66,16 @@ StreamSim provides a producer-consumer architecture for processing streaming dat
    pip install -r requirements.txt
    ```
 
-3. If you plan to use real ECG data, ensure wfdb is installed:
+3. If you get the following error:
    ```bash
-   pip install wfdb
+   stream/streamsim/src/core/simulator.py:305: UserWarning: FigureCanvasAgg is non-interactive, and thus cannot be shown
+   plt.show()
    ```
+   it can be solved by installing an additional library:
+   ```bash
+   pip install PyQt5
+   ```
+   (Source: https://discourse.matplotlib.org/t/figurecanvasagg-interactivity-problem/24042)
 
 
 ### Dependencies
